@@ -2,7 +2,6 @@
 pragma solidity ^0.8.30;
 
 interface ICFOxGovernance {
-    // ─── Enums ────────────────────────────────────────────────────────────────
 
     enum ProposalType {
         PAYMENT,
@@ -24,11 +23,9 @@ interface ICFOxGovernance {
         CANCELLED
     }
 
-    // ─── Structs ──────────────────────────────────────────────────────────────
-
     struct Member {
         address account;
-        uint256 weight;        // basis points: 10000 = 100%
+        uint256 weight;
         bool active;
         uint256 createdAt;
     }
@@ -45,10 +42,8 @@ interface ICFOxGovernance {
         uint256 expiresAt;
         bool executed;
         bool cancelled;
-        bytes callData;        // encoded execution payload
+        bytes callData;
     }
-
-    // ─── Events ───────────────────────────────────────────────────────────────
 
     event MemberAdded(address indexed member, uint256 weight, string role);
     event MemberRemoved(address indexed member);
@@ -59,8 +54,6 @@ interface ICFOxGovernance {
     event ProposalCancelled(uint256 indexed proposalId);
     event ThresholdChanged(uint256 indexed thresholdType, uint256 newValue);
     event PolicyChanged(address indexed policy);
-
-    // ─── Errors ───────────────────────────────────────────────────────────────
 
     error NotMember();
     error InactiveMember();
@@ -77,42 +70,18 @@ interface ICFOxGovernance {
     error InvalidProposalData();
     error Unauthorized();
 
-    // ─── Functions ────────────────────────────────────────────────────────────
-
-    function createPaymentProposal(
-        address token,
-        address recipient,
-        uint256 amount,
-        string calldata description
-    ) external returns (uint256 proposalId);
-
-    function createAddMemberProposal(
-        address member,
-        uint256 weight,
-        string calldata role
-    ) external returns (uint256 proposalId);
-
-    function createRemoveMemberProposal(
-        address member
-    ) external returns (uint256 proposalId);
-
-    function createEquityTransferProposal(
-        address from,
-        address to,
-        uint256 weight
-    ) external returns (uint256 proposalId);
-
+    function createPaymentProposal(address token, address recipient, uint256 amount, string calldata description) external returns (uint256 proposalId);
+    function createAddMemberProposal(address member, uint256 weight, string calldata role) external returns (uint256 proposalId);
+    function createRemoveMemberProposal(address member, address beneficiary) external returns (uint256 proposalId);
+    function createChangePolicyProposal(bytes calldata newPolicy, string calldata description) external returns (uint256 proposalId);
+    function createChangeThresholdProposal(uint256 thresholdType, uint256 newValue) external returns (uint256 proposalId);
+    function createEmergencyPauseProposal(string calldata reason) external returns (uint256 proposalId);
+    function createEquityTransferProposal(address from, address to, uint256 weight) external returns (uint256 proposalId);
     function approve(uint256 proposalId) external;
-
     function execute(uint256 proposalId) external;
-
     function cancel(uint256 proposalId) external;
-
     function getMember(address account) external view returns (Member memory);
-
     function getProposal(uint256 proposalId) external view returns (Proposal memory);
-
     function totalMembers() external view returns (uint256);
-
     function totalEquity() external view returns (uint256);
 }

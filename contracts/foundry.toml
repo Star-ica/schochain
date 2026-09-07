@@ -15,8 +15,7 @@ runs = 1000
 celo = "${CELO_RPC_URL}"
 celo_sepolia = "https://forno.celo-sepolia.celo-testnet.org"
 botchain = "${BOTCHAIN_RPC_URL}"
-
 [etherscan]
-# Blockscout doesn't need an API key — "any" satisfies Foundry's non-empty requirement
 celo_sepolia = { key = "any", url = "https://celo-sepolia.blockscout.com/api/" }
 celo = { key = "${CELOSCAN_API_KEY}", url = "https://api.celoscan.io/api" }
+botchain = { key = "any", url = "https://scan.bohr.life/api", chain = 968 }
