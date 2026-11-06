@@ -1,0 +1,30 @@
+{
+  "name": "schochain",
+  "version": "1.0.0",
+  "description": "SchoChain - decentralized scholarship management on BOT Chain",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "abi": "node scripts/export-abi.js",
+    "build": "hardhat compile && node scripts/export-abi.js",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network botTestnet",
+    "deploy:mainnet": "hardhat run scripts/deploy.js --network botMainnet",
+    "serve": "npx serve frontend",
+    "whitepaper": "python3 docs/build_whitepaper.py",
+    "test:offline": "SOLCJS=1 hardhat test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-chai-matchers": "^2.1.2",
+    "@nomicfoundation/hardhat-ethers": "^3.1.3",
+    "@nomicfoundation/hardhat-network-helpers": "^1.1.2",
+    "chai": "^4.5.0",
+    "ethers": "^6.17.0",
+    "hardhat": "^2.22.17",
+    "solc": "^0.8.24"
+  },
+  "private": true
+}

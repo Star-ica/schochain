@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — SchoChain</title><link rel="stylesheet" href="css/styles.css"></head><body>
+<main class="wrap">
+  <div class="page-head"><h1 style="font-size:2.2rem">Platform admin</h1><p class="muted">Verify providers and manage platform settings. Admins cannot move scholarship funds or change decisions.</p></div>
+  <div id="gate"></div><div id="stats" class="stats"></div><div id="body"></div>
+</main>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/deployment.js"></script><script src="js/abi.js"></script><script src="js/app.js"></script>
+<script>
+(async () => {
+  const { layout, S, C, D, esc, $, $$, short, connect, send, loading, errMsg, deployed, isAddr, toast, loadAllPrograms, fmtDate } = SCHO;
+  layout("admin.html");
+  const ST = ["None", "Pending", "Verified", "Suspended"], CL = ["", "warn", "ok", "bad"];
+  async function load() {
+    const gate = $("#gate"), body = $("#body");
+    if (!deployed) { body.innerHTML = '<div class="empty">Contracts not deployed yet.</div>'; return; }
+    loading(body);
+    try {
+      const reg = C.registry(), fac = C.factory();
+      const [rOwner, fOwner, req, paused, usdt, n, progs] = await Promise.all([reg.owner(), fac.owner(), reg.requireVerification(), fac.paused(), fac.usdt(), reg.providerCount(), loadAllPrograms()]);
+      const isAdmin = S.account && S.account === rOwner, isFacAdmin = S.account && S.account === fOwner;
+      gate.innerHTML = S.account ? (isAdmin ? '<div class="callout ok"><strong>Admin connected</strong>You can manage providers and settings.</div>' : '<div class="callout"><strong>Read-only view</strong>Connect the admin wallet to make changes.</div>') : '<button class="btn" id="cw">Connect admin wallet</button>';
+      if ($("#cw")) $("#cw").onclick = () => connect(false).then(load);
+      $("#stats").innerHTML = `<div class="stat"><b>${n}</b>Providers</div><div class="stat"><b>${progs.length}</b>Programs</div><div class="stat"><b>${progs.reduce((a, p) => a + Number(p.o.applicationCount), 0)}</b>Applications</div><div class="stat"><b>${paused ? "Paused" : "Live"}</b>Program creation</div>`;
+      const provs = [];
+      for (let i = 0; i < Number(n); i++) { const a = await reg.providerAt(i); provs.push({ a, p: await reg.getProvider(a) }); }
+      body.innerHTML = `<h2>Providers</h2><div class="table-wrap"><table><thead><tr><th>Organization</th><th>Wallet</th><th>Registered</th><th>Status</th><th></th></tr></thead><tbody>
+        ${provs.map(({ a, p }, i) => `<tr><td><b>${esc(p.name)}</b><br><span class="small muted">${esc(p.metadataURI)}</span></td><td class="mono">${short(a)}</td><td>${esc(fmtDate(p.registeredAt))}</td><td><span class="chip ${CL[Number(p.status)]}">${ST[Number(p.status)]}</span></td>
+        <td>${isAdmin ? (Number(p.status) === 1 ? `<button class="btn sm" data-act="verify" data-i="${i}">Verify</button> ` : "") + ([1, 2].includes(Number(p.status)) ? `<button class="btn sm danger" data-act="suspend" data-i="${i}">Suspend</button>` : "") + (Number(p.status) === 3 ? `<button class="btn sm secondary" data-act="reinstate" data-i="${i}">Reinstate</button>` : "") : ""}</td></tr>`).join("") || '<tr><td colspan="5" class="muted">No providers registered yet.</td></tr>'}</tbody></table></div>
+        <h2 style="margin-top:32px">Settings</h2><div class="grid three">
+        <div class="card"><h3>Verification</h3><p class="small muted">Require admin verification before a provider can create programs.</p><p>Currently: <b>${req ? "Required" : "Not required"}</b></p>${isAdmin ? `<button class="btn secondary sm" id="tgReq">${req ? "Disable" : "Enable"} requirement</button>` : ""}</div>
+        <div class="card"><h3>Program creation</h3><p class="small muted">Emergency stop for new programs. Existing programs, claims and refunds keep working.</p><p>Currently: <b>${paused ? "Paused" : "Live"}</b></p>${isFacAdmin ? `<button class="btn secondary sm" id="tgPause">${paused ? "Resume" : "Pause"}</button>` : ""}</div>
+        <div class="card"><h3>USDT token</h3><p class="mono small">${usdt}</p>${D.usdtIsMock ? '<p class="chip warn">Mock token (testnet)</p>' : ""}${isFacAdmin ? `<div class="field"><input id="usdtIn" placeholder="0x… new USDT address"></div><button class="btn secondary sm" id="setUsdt">Update USDT</button><p class="hint">Applies to programs created afterwards.</p>` : ""}</div></div>
+        <div class="card flat small" style="margin-top:20px"><b>Contracts</b><div class="mono">ProviderRegistry ${D.addresses.providerRegistry}<br>ApplicationRegistry ${D.addresses.applicationRegistry}<br>ScholarshipFactory ${D.addresses.factory}</div></div>`;
+      $$("[data-act]").forEach((b) => b.onclick = async () => { try { await send(b.dataset.act, () => C.registry(true)[b.dataset.act](provs[b.dataset.i].a), b); load(); } catch {} });
+      if ($("#tgReq")) $("#tgReq").onclick = async (e) => { try { await send("Setting", () => C.registry(true).setRequireVerification(!req), e.target); load(); } catch {} };
+      if ($("#tgPause")) $("#tgPause").onclick = async (e) => { try { await send("Setting", () => C.factory(true).setPaused(!paused), e.target); load(); } catch {} };
+      if ($("#setUsdt")) $("#setUsdt").onclick = async (e) => { const v = $("#usdtIn").value.trim(); if (!isAddr(v)) return toast("Enter a valid address.", "err"); try { await send("USDT address", () => C.factory(true).setUsdt(v), e.target); load(); } catch {} };
+    } catch (e) { body.innerHTML = '<div class="empty">' + esc(errMsg(e)) + "</div>"; }
+  }
+  await connect(true); await load();
+})();
+</script></body></html>

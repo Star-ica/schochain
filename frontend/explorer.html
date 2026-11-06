@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scholarships — SchoChain</title><link rel="stylesheet" href="css/styles.css"></head><body>
+<main class="wrap">
+  <div class="page-head"><h1 style="font-size:2.2rem">Scholarship explorer</h1><p class="muted">Every program, its rules, its pool and its deadline — straight from the chain.</p></div>
+  <div class="card flat"><div class="row two">
+    <div class="field" style="margin:0"><label for="q">Search</label><input id="q" type="search" placeholder="Title or keyword"></div>
+    <div class="field" style="margin:0"><label for="cur">Currency</label><select id="cur"><option value="">Any</option><option value="BOT">BOT</option><option value="USDT">USDT</option></select></div>
+    <div class="field" style="margin:0"><label for="st">Status</label><select id="st"><option value="open">Open for applications</option><option value="">All</option><option value="closed">Closed / cancelled</option></select></div>
+    <div class="field" style="margin:0"><label for="sort">Sort by</label><select id="sort"><option value="deadline">Deadline (soonest)</option><option value="award">Award (highest)</option><option value="new">Newest</option></select></div>
+  </div></div>
+  <div id="list" class="grid cards" style="margin-top:20px"></div>
+</main>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/deployment.js"></script><script src="js/abi.js"></script><script src="js/app.js"></script>
+<script>
+(async () => {
+  const { layout, deployed, loadAllPrograms, programCard, loading, $, now, esc, errMsg } = SCHO;
+  layout("explorer.html");
+  const list = $("#list");
+  if (!deployed) { list.innerHTML = '<div class="empty">Deploy the contracts to see live scholarships.</div>'; return; }
+  loading(list);
+  let all = [];
+  try { all = await loadAllPrograms(); } catch (e) { list.innerHTML = '<div class="empty">' + esc(errMsg(e)) + "</div>"; return; }
+  const isOpen = (p) => Number(p.o.state) === 0 && Number(p.o.deadline) >= now();
+  function render() {
+    const q = $("#q").value.trim().toLowerCase(), cur = $("#cur").value, st = $("#st").value, sort = $("#sort").value;
+    let r = all.filter((p) => (!q || (p.o.title + " " + p.o.summary).toLowerCase().includes(q)) && (!cur || p.t.symbol === cur || (cur === "USDT" && p.o.token !== SCHO.ZERO))
+      && (!st || (st === "open" ? isOpen(p) : !isOpen(p))));
+    if (sort === "deadline") r.sort((a, b) => Number(a.o.deadline) - Number(b.o.deadline));
+    if (sort === "award") r.sort((a, b) => Number(a.o.awardAmount * 10n ** BigInt(18 - p0(a.t))) - Number(b.o.awardAmount * 10n ** BigInt(18 - p0(b.t)))); 
+    if (sort === "award") r.reverse();
+    list.innerHTML = r.map(programCard).join("") || '<div class="empty">No scholarships match your filters.</div>';
+  }
+  const p0 = (t) => Math.min(18, t.decimals);
+  ["q", "cur", "st", "sort"].forEach((id) => $("#" + id).addEventListener("input", render));
+  render();
+})();
+</script></body></html>

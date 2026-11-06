@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SchoChain — Transparent scholarships on BOT Chain</title>
+<meta name="description" content="Fund, review, award and claim scholarships with transparent, wallet-based rules on BOT Chain.">
+<link rel="stylesheet" href="css/styles.css"></head><body>
+<main>
+<section class="hero"><div class="wrap">
+  <span class="chip info">Built on BOT Chain</span>
+  <h1 style="margin-top:14px">Scholarships that are funded, decided<br>and paid in the open.</h1>
+  <p class="lead">SchoChain gives foundations, schools and sponsors a transparent way to run scholarship programs — and gives students a clear, wallet-based path from application to payment.</p>
+  <div class="inline"><a class="btn" href="explorer.html">Browse scholarships</a><a class="btn secondary" href="provider.html">Launch a program</a></div>
+  <div class="stats" id="stats"><div class="stat"><b>–</b>Programs</div><div class="stat"><b>–</b>Providers</div></div>
+</div></section>
+
+<section class="section"><div class="wrap">
+  <h2>How it works</h2>
+  <div class="grid three">
+    <div class="card"><h3>🏛️ Providers</h3><p class="muted">Register your organization, create a program with eligibility rules, a deadline and a fixed award, then fund the pool in BOT or USDT. Funds are locked in a per-program treasury.</p></div>
+    <div class="card"><h3>🧑‍🎓 Students</h3><p class="muted">Connect a wallet, check the requirements, declare eligibility and apply. Track your status and claim an approved award straight to your own wallet.</p></div>
+    <div class="card"><h3>🔍 Reviewers</h3><p class="muted">Providers authorize reviewers per program. Reviewers see only their assigned applications and submit a score and recommendation before any decision can be made.</p></div>
+  </div>
+</div></section>
+
+<section class="section" style="padding-top:0"><div class="wrap">
+  <h2>The award lifecycle</h2>
+  <ol class="steps-list card flat">
+    <li><div><strong>Apply.</strong> One application per wallet. Eligibility is declared publicly; documents stay with the student, only a hash is recorded.</div></li>
+    <li><div><strong>Review.</strong> Assigned reviewers score the application. A provider-set quorum must be reached first.</div></li>
+    <li><div><strong>Decide &amp; reserve.</strong> Approving reserves the award from the pool immediately, so promises can never exceed funded money or the award cap.</div></li>
+    <li><div><strong>Publish.</strong> Decisions become official when the provider publishes them.</div></li>
+    <li><div><strong>Claim.</strong> The student claims once, within the claim window. Unclaimed awards expire and funds return to the pool; surplus is refundable after the program closes.</div></li>
+  </ol>
+  <div class="callout info"><strong>What is — and isn't — private</strong>Blockchains are public. SchoChain never asks for names, IDs, transcripts or financial records onchain. A document hash lets you prove a file existed unchanged; it does <u>not</u> make the file private, and it is not storage. Keep your documents with the provider through a channel you trust.</div>
+</div></section>
+
+<section class="section" style="padding-top:0"><div class="wrap">
+  <div class="inline" style="justify-content:space-between"><h2 style="margin:0">Latest scholarships</h2><a href="explorer.html">See all →</a></div>
+  <div id="latest" class="grid cards" style="margin-top:18px"></div>
+</div></section>
+</main>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/deployment.js"></script><script src="js/abi.js"></script><script src="js/app.js"></script>
+<script>
+(async () => {
+  const { layout, deployed, loadAllPrograms, programCard, C, loading, $ } = SCHO;
+  layout("index.html");
+  const box = $("#latest");
+  if (!deployed) { box.innerHTML = '<div class="empty">Deploy the contracts to see live scholarships.</div>'; return; }
+  loading(box);
+  try {
+    const [progs, pc] = await Promise.all([loadAllPrograms(), C.registry().providerCount()]);
+    $("#stats").innerHTML = `<div class="stat"><b>${progs.length}</b>Programs</div><div class="stat"><b>${pc}</b>Providers</div>
+      <div class="stat"><b>${progs.reduce((n, p) => n + Number(p.o.applicationCount), 0)}</b>Applications</div>
+      <div class="stat"><b>${progs.reduce((n, p) => n + Number(p.o.awardCount), 0)}</b>Awards approved</div>`;
+    box.innerHTML = progs.slice(0, 3).map(programCard).join("") || '<div class="empty">No scholarships yet. Be the first provider!</div>';
+  } catch (e) { box.innerHTML = '<div class="empty">Could not load data: ' + SCHO.esc(SCHO.errMsg(e)) + "</div>"; }
+})();
+</script></body></html>

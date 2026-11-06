@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Provider dashboard — SchoChain</title><link rel="stylesheet" href="css/styles.css"></head><body>
+<main class="wrap">
+  <div class="page-head"><h1 style="font-size:2.2rem">Provider dashboard</h1><p class="muted">Create scholarships, fund pools, assign reviewers, decide and disburse.</p></div>
+  <div id="gate"></div>
+  <div id="app"></div>
+</main>
+<dialog id="dlg" style="border:1px solid var(--line);border-radius:16px;padding:22px;max-width:520px;width:calc(100% - 32px);background:var(--surface);color:var(--text)"><div id="dlgBody"></div></dialog>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/deployment.js"></script><script src="js/abi.js"></script><script src="js/app.js"></script>
+<script>
+(async () => {
+  const { layout, S, C, D, ZERO, esc, safeUrl, $, $$, short, connect, send, loading, loadProgram, tokenInfo, fmtAmt, fmtDate, fmtDateTime, now, statusChip, stateChip, textHash, errMsg, toast, isAddr, bit, deployed } = SCHO;
+  layout("provider.html");
+  const ST = ["None", "Pending verification", "Verified", "Suspended"], CL = ["", "warn", "ok", "bad"];
+  const app = $("#app"), dlg = $("#dlg");
+  let tab = "programs", selected = null;
+
+  function openDlg(html, wire) { $("#dlgBody").innerHTML = html + '<div style="margin-top:12px"><button class="btn ghost sm" id="dx" type="button">Cancel</button></div>'; $("#dx").onclick = () => dlg.close(); wire?.(); dlg.showModal(); }
+
+  async function load() {
+    const gate = $("#gate");
+    if (!deployed) { app.innerHTML = '<div class="empty">Contracts not deployed yet.</div>'; return; }
+    if (!S.account) { gate.innerHTML = '<div class="callout info"><strong>Connect your organization wallet</strong>This wallet will own your programs and receive refunds.</div><button class="btn" id="cw">Connect wallet</button>'; $("#cw").onclick = () => connect(false).then(load); app.innerHTML = ""; return; }
+    gate.innerHTML = `<p class="small muted">Wallet <span class="mono">${S.account}</span></p>`;
+    loading(app);
+    try {
+      const info = await C.registry().getProvider(S.account), status = Number(info.status);
+      if (status === 0) return renderRegister();
+      const req = await C.registry().requireVerification();
+      gate.innerHTML += `<div class="inline" style="margin-bottom:8px"><b>${esc(info.name)}</b><span class="chip ${CL[status]}">${ST[status]}</span></div>` +
+        (status === 1 && req ? '<div class="callout"><strong>Awaiting verification</strong>The platform admin must verify your organization before you can create programs.</div>' : "") +
+        (status === 3 ? '<div class="callout bad"><strong>Account suspended</strong>New applications, decisions and funding are frozen. Students can still claim published awards.</div>' : "");
+      app.innerHTML = `<div class="tabs"><button data-t="programs">My programs</button><button data-t="create">Create program</button><button data-t="org">Organization</button></div><div id="pane"></div>`;
+      $$(".tabs button").forEach((b) => { b.classList.toggle("on", b.dataset.t === tab); b.onclick = () => { tab = b.dataset.t; selected = null; load(); }; });
+      if (tab === "create") return renderCreate(status, req);
+      if (tab === "org") return renderOrg(info);
+      return selected ? renderManage(selected) : renderList();
+    } catch (e) { app.innerHTML = '<div class="empty">' + esc(errMsg(e)) + "</div>"; }
+  }
+
+  function renderRegister() {
+    app.innerHTML = `<form id="rf" class="card" style="max-width:560px"><h3>Register your organization</h3>
+      <p class="muted small">Use public organization information only. After registering, the platform admin verifies your organization.</p>
+      <div class="field"><label>Organization name</label><input id="rn" maxlength="64" required></div>
+      <div class="field"><label>Website or public profile (optional)</label><input id="ru" maxlength="160" placeholder="https://"></div>
+      <button class="btn" type="submit">Register organization</button></form>`;
+    $("#rf").onsubmit = async (e) => { e.preventDefault(); try { await send("Registration", () => C.registry(true).register($("#rn").value.trim(), $("#ru").value.trim()), e.target.querySelector("button")); load(); } catch {} };
+  }
+
+  function renderOrg(info) {
+    $("#pane").innerHTML = `<form id="of" class="card" style="max-width:560px"><h3>Organization profile</h3>
+      <div class="field"><label>Name</label><input id="on" maxlength="64" value="${esc(info.name)}" required></div>
+      <div class="field"><label>Website</label><input id="ou" maxlength="160" value="${esc(info.metadataURI)}"></div><button class="btn" type="submit">Update profile</button></form>`;
+    $("#of").onsubmit = async (e) => { e.preventDefault(); try { await send("Profile", () => C.registry(true).updateProfile($("#on").value.trim(), $("#ou").value.trim()), e.target.querySelector("button")); load(); } catch {} };
+  }
+
+  async function renderCreate(status, req) {
+    const usdtAddr = await C.factory().usdt(), usdt = await tokenInfo(usdtAddr);
+    const can = status === 2 || (!req && status === 1);
+    $("#pane").innerHTML = `${can ? "" : '<div class="callout"><strong>Not yet able to create programs</strong>Your organization must be verified first.</div>'}
+      <form id="cf" class="card"><h3>New scholarship program</h3>
+      <div class="row two"><div class="field"><label>Title</label><input id="ct" maxlength="96" required></div>
+      <div class="field"><label>Info link (optional)</label><input id="ci" maxlength="160" placeholder="https://"></div></div>
+      <div class="field"><label>Summary (public, max 400 chars)</label><textarea id="cs" maxlength="400"></textarea></div>
+      <div class="field"><label>Eligibility requirements — one per line (max 16)</label><textarea id="cc" placeholder="*Enrolled at an accredited university&#10;*Studies a STEM field&#10;Demonstrates financial need"></textarea>
+      <p class="hint">Start a line with <b>*</b> to make it required. Applicants publicly declare which they meet. Do not include personal data.</p></div>
+      <div class="row two"><div class="field"><label>Currency</label><select id="cu"><option value="0">BOT (native)</option>${usdtAddr !== ZERO ? `<option value="1">${esc(usdt.symbol)} (${esc(usdt.decimals)} decimals)</option>` : ""}</select></div>
+      <div class="field"><label>Award per student</label><input id="ca" type="number" step="any" min="0" required></div>
+      <div class="field"><label>Maximum awards</label><input id="cm" type="number" min="1" max="10000" value="1" required></div>
+      <div class="field"><label>Application deadline</label><input id="cd" type="datetime-local" required></div>
+      <div class="field"><label>Reviews required per decision (1–5)</label><input id="cr" type="number" min="1" max="5" value="2" required></div>
+      <div class="field"><label>Claim window (days, 7–365)</label><input id="cw2" type="number" min="7" max="365" value="30" required></div></div>
+      <div class="callout info small" id="need"></div>
+      <button class="btn" type="submit" ${can ? "" : "disabled"}>Create program</button></form>`;
+    const upd = () => { const a = Number($("#ca").value || 0), m = Number($("#cm").value || 0), sym = $("#cu").value === "1" ? usdt.symbol : "BOT"; $("#need").innerHTML = `<strong>Pool needed for all awards</strong>${(a * m).toLocaleString()} ${esc(sym)} — you fund the pool after creation. Approvals can only be made against funds already in the pool.`; };
+    ["ca", "cm", "cu"].forEach((id) => $("#" + id).addEventListener("input", upd)); upd();
+    $("#cf").onsubmit = async (e) => {
+      e.preventDefault();
+      const lines = $("#cc").value.split("\n").map((l) => l.trim()).filter(Boolean);
+      if (lines.length > 16) return toast("Maximum 16 criteria.", "err");
+      let mask = 0n; const criteria = lines.map((l, i) => { if (l.startsWith("*")) { mask |= 1n << BigInt(i); l = l.slice(1).trim(); } return l; });
+      const cur = Number($("#cu").value), dec = cur === 1 ? usdt.decimals : 18;
+      let amt; try { amt = ethers.parseUnits($("#ca").value, dec); } catch { return toast("Invalid award amount.", "err"); }
+      const dl = Math.floor(new Date($("#cd").value).getTime() / 1000);
+      if (!(dl > now())) return toast("Deadline must be in the future.", "err");
+      const p = { title: $("#ct").value.trim(), summary: $("#cs").value.trim(), infoURI: $("#ci").value.trim(), criteria, requiredMask: mask, currency: cur, awardAmount: amt, maxAwards: Number($("#cm").value), deadline: dl, requiredReviews: Number($("#cr").value), claimWindowDays: Number($("#cw2").value) };
+      try { await send("Program creation", () => C.factory(true).createProgram(p), e.target.querySelector("button")); tab = "programs"; load(); } catch {}
+    };
+  }
+
+  async function renderList() {
+    const pane = $("#pane"); loading(pane);
+    const addrs = await C.factory().programsOf(S.account);
+    if (!addrs.length) { pane.innerHTML = '<div class="empty">No programs yet. Use “Create program” to launch your first scholarship.</div>'; return; }
+    const progs = (await Promise.all(addrs.map((a) => loadProgram(a)))).reverse();
+    pane.innerHTML = `<div class="grid cards">${progs.map((p, i) => `<article class="card"><div class="inline" style="justify-content:space-between">${stateChip(p.o)}<span class="small muted">${p.o.applicationCount} applicants</span></div>
+      <h3 style="margin-top:8px">${esc(p.o.title)}</h3><p class="small muted">Award ${esc(fmtAmt(p.o.awardAmount, p.t))} × ${p.o.maxAwards} · deadline ${esc(fmtDate(p.o.deadline))}</p>
+      <button class="btn secondary" data-m="${i}" style="width:100%">Manage</button></article>`).join("")}</div>`;
+    $$("[data-m]").forEach((b) => b.onclick = () => { selected = progs[b.dataset.m].address; load(); });
+  }
+
+  async function renderManage(addr) {
+    const pane = $("#pane"); loading(pane);
+    const p = C.program(addr), pw = () => C.program(addr, true);
+    const [pr, criteria, rlist, apps] = await Promise.all([loadProgram(addr), p.criteriaList(), p.reviewerList(), p.getApplications(1, 200)]);
+    const { o, t } = pr, st = Number(o.state);
+    const reviewers = []; for (const r of rlist) if (await p.isReviewer(r)) reviewers.push(r);
+    const funded = o.totalFunded - o.totalPaid - o.totalRefunded, free = funded - o.committed;
+    const pending = apps.filter((a) => Number(a.decision) !== 0 && !a.published);
+    const reload = () => renderManage(addr);
+    pane.innerHTML = `<button class="btn ghost sm" id="back">← All programs</button>
+      <div class="inline" style="margin:8px 0 14px;justify-content:space-between"><h2 style="margin:0">${esc(o.title)}</h2>${stateChip(o)}</div>
+      <div class="stats" style="margin-top:0">
+        <div class="stat"><b>${esc(fmtAmt(funded, t))}</b>In pool</div><div class="stat"><b>${esc(fmtAmt(o.committed, t))}</b>Reserved</div>
+        <div class="stat"><b>${esc(fmtAmt(free, t))}</b>Unallocated</div><div class="stat"><b>${esc(fmtAmt(o.totalPaid, t))}</b>Paid out</div>
+        <div class="stat"><b>${o.awardCount}/${o.maxAwards}</b>Awards</div><div class="stat"><b>${o.undecided}</b>Undecided</div></div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin:18px 0">
+        <div class="card"><h3>Fund the pool</h3>${st === 2 ? '<p class="muted small">Program cancelled.</p>' : `<div class="field"><label>Amount (${esc(t.symbol)})</label><input id="fa" type="number" step="any" min="0"></div><button class="btn" id="fb">${t.address === ZERO ? "Fund with BOT" : "Approve &amp; fund " + esc(t.symbol)}</button>`}</div>
+        <div class="card"><h3>Reviewers</h3>${reviewers.length ? reviewers.map((r, i) => `<div class="inline" style="justify-content:space-between;margin-bottom:6px"><span class="mono">${short(r)}</span><button class="btn secondary sm" data-rm="${i}">Remove</button></div>`).join("") : '<p class="muted small">No reviewers yet.</p>'}
+          ${st === 2 ? "" : '<div class="field" style="margin-top:10px"><label>Add reviewer wallet</label><input id="ra" placeholder="0x…"></div><button class="btn secondary sm" id="rb">Authorize reviewer</button>'}</div>
+        <div class="card"><h3>Lifecycle</h3><p class="small muted">Close after the deadline once every application has a decision. Cancel at any time: unpublished approvals are voided; published awards stay claimable.</p>
+          <div class="inline"><button class="btn secondary sm" id="cl" ${st === 0 && Number(o.deadline) < now() && o.undecided === 0n ? "" : "disabled"}>Close program</button><button class="btn danger sm" id="cn" ${st === 0 ? "" : "disabled"}>Cancel program</button></div>
+          <hr style="border:0;border-top:1px solid var(--line);margin:14px 0"><div class="field"><label>Withdraw surplus (${esc(t.symbol)})</label><input id="wa" type="number" step="any" min="0" value="${ethers.formatUnits(free, t.decimals)}" ${st === 0 ? "disabled" : ""}></div>
+          <button class="btn secondary sm" id="wb" ${st === 0 || free === 0n ? "disabled" : ""}>Withdraw surplus</button>${st === 0 ? '<p class="hint">Available once the program is closed or cancelled.</p>' : ""}</div></div>
+      <div class="inline" style="justify-content:space-between;margin-bottom:10px"><h3 style="margin:0">Applications (${apps.length})</h3>
+        <button class="btn accent sm" id="pub" ${pending.length && st !== 2 ? "" : "disabled"}>Publish ${pending.length} pending decision${pending.length === 1 ? "" : "s"}</button></div>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Applicant</th><th>Declared</th><th>Reviews</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+      ${apps.length ? apps.map((a, i) => { const s = Number(a.status), open = [1, 2].includes(s), d = Number(a.decision), canDecide = st === 0 && open && !a.published && a.reviewCount >= o.requiredReviews;
+        return `<tr><td>${a.id}</td><td class="mono">${short(a.student)}<br><span class="muted">${a.docHash.slice(0, 12)}…</span></td>
+          <td class="small">${criteria.map((c, k) => bit(a.declaredMask, k) ? "✅" : "⬜").join("") || "—"}</td>
+          <td>${a.reviewCount}/${o.requiredReviews}${a.reviewCount > 0 ? `<br><span class="small muted">avg ${a.avgScore}</span>` : ""}</td>
+          <td>${statusChip(s)}${d && !a.published ? `<br><span class="chip info">Pending: ${d === 1 ? "approve" : "reject"}</span>` : ""}</td>
+          <td><div class="inline">${st === 0 && open && d === 0 && reviewers.length ? `<button class="btn secondary sm" data-as="${i}">Assign</button>` : ""}
+          ${canDecide ? `<button class="btn sm" data-dc="${i}">${d ? "Revise" : "Decide"}</button>` : ""}
+          ${s === 3 ? `<button class="btn sm" data-ds="${i}">Disburse</button>` : ""}
+          ${s === 3 && now() > Number(a.claimDeadline) ? `<button class="btn danger sm" data-ex="${i}">Expire</button>` : ""}</div></td></tr>`; }).join("") : '<tr><td colspan="6" class="muted">No applications yet.</td></tr>'}
+      </tbody></table></div><p class="small muted" style="margin-top:8px">Decisions require ${o.requiredReviews} review(s). Approving reserves the award immediately; students see the outcome only after you publish.</p>`;
+
+    $("#back").onclick = () => { selected = null; load(); };
+    const parse = (v) => { try { return ethers.parseUnits(v, t.decimals); } catch { toast("Invalid amount.", "err"); return null; } };
+    if ($("#fb")) $("#fb").onclick = async (e) => {
+      const amt = parse($("#fa").value); if (!amt || amt <= 0n) return;
+      try {
+        if (t.address === ZERO) await send("Funding", () => pw().fund({ value: amt }), e.target);
+        else {
+          const tok = C.erc20(t.address, true);
+          if ((await tok.allowance(S.account, addr)) < amt) await send("Token approval", () => tok.approve(addr, amt), e.target);
+          await send("Funding", () => pw().fundToken(amt), e.target);
+        }
+        reload();
+      } catch {}
+    };
+    if ($("#rb")) $("#rb").onclick = async (e) => { const v = $("#ra").value.trim(); if (!isAddr(v)) return toast("Enter a valid wallet address.", "err"); try { await send("Reviewer", () => pw().addReviewer(v), e.target); reload(); } catch {} };
+    $$("[data-rm]").forEach((b) => b.onclick = async () => { try { await send("Remove reviewer", () => pw().removeReviewer(reviewers[b.dataset.rm]), b); reload(); } catch {} });
+    $("#cl").onclick = async (e) => { try { await send("Close", () => pw().closeProgram(), e.target); reload(); } catch {} };
+    $("#cn").onclick = async (e) => { if (!confirm("Cancel this program? Pending applications will be cancelled and unpublished approvals voided.")) return; try { await send("Cancel", () => pw().cancelProgram(), e.target); reload(); } catch {} };
+    $("#wb").onclick = async (e) => { const amt = parse($("#wa").value); if (!amt || amt <= 0n) return; try { await send("Withdrawal", () => pw().withdrawSurplus(amt), e.target); reload(); } catch {} };
+    $("#pub").onclick = async (e) => { try { await send("Publish decisions", () => pw().publishDecisions(pending.slice(0, 100).map((a) => a.id)), e.target); reload(); } catch {} };
+    $$("[data-ds]").forEach((b) => b.onclick = async () => { try { await send("Disbursement", () => pw().disburse(apps[b.dataset.ds].id), b); reload(); } catch {} });
+    $$("[data-ex]").forEach((b) => b.onclick = async () => { try { await send("Expire award", () => pw().expireAward(apps[b.dataset.ex].id), b); reload(); } catch {} });
+    $$("[data-as]").forEach((b) => b.onclick = async () => {
+      const a = apps[b.dataset.as], assigned = (await p.assignedTo(a.id)).map((x) => x.toLowerCase());
+      const choices = reviewers.filter((r) => !assigned.includes(r.toLowerCase()) && r.toLowerCase() !== a.student.toLowerCase());
+      if (!choices.length) return toast("All eligible reviewers are already assigned.");
+      openDlg(`<h3>Assign reviewers — application #${a.id}</h3>${choices.map((r) => `<label class="check"><input type="checkbox" value="${r}"> <span class="mono">${r}</span></label>`).join("")}<button class="btn" id="ok">Assign selected</button>`, () => {
+        $("#ok").onclick = async (e) => { const sel = $$("#dlgBody input:checked").map((c) => c.value); if (!sel.length) return; dlg.close(); try { await send("Assignment", () => pw().assignReviewers(a.id, sel), e.target); reload(); } catch {} };
+      });
+    });
+    $$("[data-dc]").forEach((b) => b.onclick = () => {
+      const a = apps[b.dataset.dc];
+      openDlg(`<h3>Decision — application #${a.id}</h3><p class="small muted">Average score ${a.avgScore} from ${a.reviewCount} review(s). Approving reserves ${esc(fmtAmt(o.awardAmount, t))} from the pool. You can revise until you publish.</p>
+        <div class="field"><label>Reason (only a hash is recorded onchain)</label><textarea id="why"></textarea></div><div class="inline"><button class="btn" id="ap">Approve</button><button class="btn danger" id="rj">Reject</button></div>`, () => {
+        const go = (approve) => async (e) => { const h = textHash($("#why").value); dlg.close(); try { await send(approve ? "Approval" : "Rejection", () => pw().decide(a.id, approve, h), e.target); reload(); } catch {} };
+        $("#ap").onclick = go(true); $("#rj").onclick = go(false);
+      });
+    });
+  }
+  await connect(true); await load();
+})();
+</script></body></html>

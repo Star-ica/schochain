@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apply — SchoChain</title><link rel="stylesheet" href="css/styles.css"></head><body>
+<main class="wrap" id="main" style="max-width:760px"><div class="empty"><span class="spinner"></span> Loading…</div></main>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/deployment.js"></script><script src="js/abi.js"></script><script src="js/app.js"></script>
+<script>
+(async () => {
+  const { layout, S, C, esc, $, $$, qs, isAddr, loadProgram, fmtAmt, fmtDate, now, bit, connect, send, bundleHash, errMsg, toast } = SCHO;
+  layout("explorer.html");
+  const main = $("#main"), addr = qs("p");
+  if (!isAddr(addr) || !SCHO.deployed) { main.innerHTML = '<div class="empty">Scholarship not found. <a href="explorer.html">Browse scholarships</a></div>'; return; }
+  await connect(true);
+  async function render() {
+    try {
+      const { o, t } = await loadProgram(addr), prog = C.program(addr);
+      const criteria = await prog.criteriaList();
+      if (Number(o.state) !== 0 || Number(o.deadline) < now()) { main.innerHTML = `<div class="page-head"><h1>${esc(o.title)}</h1></div><div class="callout bad"><strong>Applications are closed</strong>This scholarship is not accepting applications.</div><a class="btn secondary" href="explorer.html">Browse others</a>`; return; }
+      if (S.account && (await prog.applicationOf(S.account)) > 0n) { main.innerHTML = `<div class="page-head"><h1>${esc(o.title)}</h1></div><div class="callout ok"><strong>You have already applied</strong>Each wallet may submit one application per scholarship.</div><a class="btn" href="student.html">Track my application</a>`; return; }
+      main.innerHTML = `<div class="page-head"><a class="small" href="scholarship.html?p=${addr}">← ${esc(o.title)}</a><h1 style="font-size:2rem;margin-top:8px">Apply for ${esc(o.title)}</h1>
+        <p class="muted">Award: <b>${esc(fmtAmt(o.awardAmount, t))}</b> · Deadline: <b>${esc(fmtDate(o.deadline))}</b></p></div>
+        <div class="callout"><strong>Before you apply — read this</strong>Your application is a public blockchain transaction. We record your <b>wallet address</b>, your <b>eligibility declarations</b> and a <b>document hash</b>. We never ask for your name, ID, address or financial records onchain. A hash only proves a document was not changed later — it does <u>not</u> keep the document private or store it. Send documents to the provider through a channel they specify, and never type personal details in the optional reference field.</div>
+        <form id="f" class="card" novalidate>
+          <fieldset style="border:0;padding:0;margin:0 0 16px"><legend style="font-weight:700;margin-bottom:10px">1. Declare your eligibility</legend>
+          ${criteria.map((c, i) => `<label class="check"><input type="checkbox" data-bit="${i}"> <span>${esc(c)} ${bit(o.requiredMask, i) ? '<span class="chip warn">Required</span>' : '<span class="chip">Optional</span>'}</span></label>`).join("") || '<p class="muted small">No criteria specified.</p>'}
+          <p class="hint">By ticking a box you publicly declare that you meet that requirement. False declarations may disqualify you.</p></fieldset>
+          <div class="field"><label for="files">2. Select your supporting document(s)</label><input id="files" type="file" multiple>
+            <p class="hint">Files are hashed (SHA-256) <b>in your browser</b>. They are never uploaded by this site. Keep the exact same files — the provider may ask you to reproduce the hash.</p><div id="hashes" class="mono small"></div></div>
+          <div class="field"><label for="ref">3. Optional short reference (non-sensitive)</label><input id="ref" maxlength="160" placeholder="e.g. a public link or reference code the provider gave you"><p class="hint">Public forever. Leave empty if unsure. Max 160 characters.</p></div>
+          <label class="check"><input type="checkbox" id="ack"> <span>I understand that my wallet address, declarations and the document hash will be public and permanent, and that a hash does not protect my documents.</span></label>
+          <button class="btn" id="go" type="submit" style="width:100%">${S.account ? "Submit application" : "Connect wallet to apply"}</button>
+        </form>`;
+      let bundle = null;
+      $("#files").addEventListener("change", async (e) => {
+        const fs = [...e.target.files]; if (!fs.length) { bundle = null; $("#hashes").textContent = ""; return; }
+        bundle = await bundleHash(fs);
+        $("#hashes").innerHTML = fs.map((f, i) => `${esc(f.name)}<br>${bundle.hashes[i]}`).join("<br>") + (fs.length > 1 ? `<br><b>Bundle hash:</b><br>${bundle.hash}` : "");
+      });
+      $("#f").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!S.account && !(await connect(false))) return;
+        let mask = 0n; $$("[data-bit]").forEach((c) => { if (c.checked) mask |= 1n << BigInt(c.dataset.bit); });
+        if ((mask & o.requiredMask) !== o.requiredMask) return toast("Please declare every required criterion.", "err");
+        if (!bundle) return toast("Select at least one document to hash.", "err");
+        if (!$("#ack").checked) return toast("Please acknowledge the privacy notice.", "err");
+        try {
+          await send("Application", () => C.program(addr, true).applyForScholarship(mask, bundle.hash, $("#ref").value.trim()), $("#go"));
+          location.href = "student.html";
+        } catch {}
+      });
+    } catch (e) { main.innerHTML = '<div class="empty">' + esc(errMsg(e)) + "</div>"; }
+  }
+  await render();
+  window.addEventListener("scho:wallet", render);
+})();
+</script></body></html>

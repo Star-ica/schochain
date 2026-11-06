@@ -1,153 +1,57 @@
-# CFOx CFO
+# SchoChain — Decentralized Scholarship Management on BOT Chain
 
-> AI-powered autonomous treasury management with equity-weighted human governance.
-
-**The AI can spend, but it can't take control.**
-
-## Architecture
+Stack: HTML5, CSS3, vanilla JavaScript, Solidity 0.8.24, ethers.js v6 (bundled locally). **No backend, database or centralized storage.**
 
 ```
-User/DAO
-  ↓
-CFOx Web UI (Next.js)
-  ↓
-FastAPI Backend
-  ├── AI CFO Agent (Anthropic claude-sonnet-4-6)
-  ├── Policy Engine (offchain mirror of contract)
-  └── Blockchain Indexer
-  ↓
-CFOxGovernance.sol
-  ├── Equity-weighted proposals + signing
-  └── Weight snapshots (prevents vote manipulation)
-  ↓
-CFOxPolicy.sol
-  └── Per-tx / daily / weekly spend enforcement
-  ↓
-CFOxTreasury.sol
-  └── Fund custody + execution
+contracts/   ProviderRegistry, ApplicationRegistry, ScholarshipFactory, ScholarshipProgram, mocks/MockUSDT
+test/        29 Hardhat tests
+scripts/     deploy.js, export-abi.js, mint-usdt.js
+frontend/    index, explorer (scholarship list), scholarship, apply, student, provider, reviewer, admin
+docs/        SchoChain_Whitepaper.pdf (+ build_whitepaper.py)
 ```
 
-## Key Principles
-
-1. **AI = Operator, Equity Holders = Governors, Smart Contract = Enforcer**
-2. **Equity weights are snapshotted** at proposal creation — changing weights mid-vote has no effect
-3. **All payment flows through the policy engine** — both offchain (UX) and onchain (enforcement)
-4. **AI wallet has 0% equity** — it creates proposals, never controls funds directly
-
-## Contract Suite
-
-| Contract | Role |
-|----------|------|
-| `CFOxGovernance.sol` | Members, equity weights, proposals, voting |
-| `CFOxTreasury.sol` | Fund custody, payment execution |
-| `CFOxPolicy.sol` | AI spending limits, governance thresholds |
-
-## Equity Model
-
-Weights stored in **basis points** (10,000 = 100%):
-
-```
-Founder    6000  (60%)
-CFO        2000  (20%)
-CTO        1000  (10%)
-Ops        1000  (10%)
-AI Agent      0   (0%)
-─────────────────────
-Total     10000 (100%)  ← invariant enforced onchain
-```
-
-## Governance Thresholds
-
-| Action | Required Approval |
-|--------|--------------------|
-| AI auto-execute | ≤$100 + within daily/weekly limits |
-| Medium payment ($100–$1k) | 50% equity |
-| Large payment (>$1k) | 70% equity |
-| Add/remove member | 70% equity |
-| Transfer equity | 70% equity |
-| Emergency pause | 50% equity |
-
-## Setup
-
-### 1. Smart Contracts (Foundry)
-
+## 1. Install and test
 ```bash
-cd contracts
-forge install
-cp ../.env.example .env  # fill in your values
-forge build
-forge test
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
+npm install --legacy-peer-deps
+npx hardhat test
 ```
+If your network blocks the Solidity compiler download, use the bundled solcjs fallback: `SOLCJS=1 npx hardhat test`.
 
-### 2. Backend (FastAPI)
-
+## 2. Configure
 ```bash
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp ../.env.example .env
-uvicorn app.main:app --reload
+cp .env.example .env     # set PRIVATE_KEY (funded with BOT for gas)
 ```
+Networks (from `hardhat.config.js`): `botTestnet` chain 968 (`https://rpc.bohr.life`), `botMainnet` chain 677 (`https://rpc.botchain.ai`). Confirm both against the official BOT Chain docs before deploying.
 
-### 3. AI Agent
-
-The agent is embedded in the backend. Configure:
-- `ANTHROPIC_API_KEY` — your Anthropic API key
-- `AGENT_PRIVATE_KEY` — the AI agent's wallet (0% equity, just submits txs)
-
-### 4. Frontend (Next.js) — TODO
-
+## 3. Deploy
 ```bash
-cd frontend
-npm install
-npm run dev
+npx hardhat run scripts/deploy.js --network botTestnet
 ```
+This deploys MockUSDT (testnet only, unless `USDT_ADDRESS` is set), ProviderRegistry, ApplicationRegistry, the ScholarshipProgram implementation and ScholarshipFactory, links the registry to the factory, and **overwrites `frontend/js/deployment.js`** and `deployments/<network>.json`.
+For mainnet you **must** set `USDT_ADDRESS` to the real token; the script refuses to deploy the mock there.
 
-## Demo Flow
+The deployer becomes the platform admin. Use the Admin page (or a multisig via `transferOwnership` + `acceptOwnership` on the registry and factory) to manage verification.
 
-1. **Create treasury** — founder gets 100% equity
-2. **Add team** — founder proposes equity transfers to CFO (20%) and CTO (10%)
-3. **Deposit USDC** — send USDC to treasury address
-4. **Ask AI** — *"How much can we safely spend this month?"*
-5. **Pay vendor** — *"Pay our designer $500"* → AI creates proposal → equity holders sign → executes
-6. **Verify** — *"Why did we make that payment?"* → AI retrieves full audit trail
+Test USDT: `MINT_TO=0xYourWallet AMOUNT=1000 npx hardhat run scripts/mint-usdt.js --network botTestnet`.
 
-## Security Checklist
-
-- [ ] Private keys never touch the AI
-- [ ] AI cannot call treasury.execute() directly
-- [ ] All payments validated onchain by CFOxPolicy
-- [ ] Proposal hashes include chainId (replay protection)
-- [ ] Weight snapshots prevent mid-vote manipulation
-- [ ] Reentrancy protection on treasury
-- [ ] Emergency pause mechanism
-- [ ] Token whitelist enforced onchain
-- [ ] Proposals expire after 7 days
-
-## Test Coverage
-
+## 4. Front end
+`frontend/js/abi.js` is pre-generated; regenerate after contract changes with `npm run build`.
 ```bash
-cd contracts
-forge test -vv
+npx serve frontend        # any static host works; wallets need http(s), not file://
 ```
+Set `explorer` in `frontend/js/deployment.js` if your explorer URL differs.
 
-Tests cover:
-- Auto-execute for small payments
-- Daily limit escalation to multisig
-- Proposal creation, signing, execution
-- Cannot execute twice
-- Cannot sign twice
-- Non-member cannot sign
-- Weight snapshot isolation
-- Threshold enforcement
-- Proposal expiry
-- Emergency pause
-- Token whitelist
-- Unauthorized treasury access
-- Equity transfer flow
-- Weight invariant (sum = 10000)
-- Operation hash includes chainId (replay protection)
-# CFOx
-# CFOx
-# cfox
+## 5. First run walkthrough
+1. Provider wallet: **Provider** page → register organization.
+2. Admin wallet: **Admin** page → verify the provider.
+3. Provider: **Create program**, then **Manage → Fund**, then add reviewers.
+4. Student wallet: **Scholarships → Apply**.
+5. Provider: assign reviewers → reviewers submit reviews (**Reviewer** page) → provider decides → **Publish**.
+6. Student: **Student** page → **Claim award**. Provider can also **Disburse**.
+7. After the deadline and all decisions: **Close**, then **Withdraw surplus**. Or **Cancel** at any time.
+
+## Privacy
+Only wallet addresses, statuses, public eligibility declarations and document hashes are recorded. **A document hash does not make a document private, encrypted or stored** — see Section 5 of the whitepaper. Never put personal data into any text field.
+
+## Known limits
+Unaudited reference implementation. The front end has not been exercised in a live browser against a live chain in this build; run the walkthrough on testnet first. See whitepaper Section 9.

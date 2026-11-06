@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scholarship details — SchoChain</title><link rel="stylesheet" href="css/styles.css"></head><body>
+<main class="wrap" id="main"><div class="empty"><span class="spinner"></span> Loading…</div></main>
+<script src="js/vendor/ethers.umd.min.js"></script><script src="js/deployment.js"></script><script src="js/abi.js"></script><script src="js/app.js"></script>
+<script>
+(async () => {
+  const { layout, S, C, esc, safeUrl, short, $, qs, isAddr, loadProgram, fmtAmt, fmtDate, fmtDateTime, now, timeLeft, stateChip, statusChip, timeline, bit, connect, STATE, D, errMsg } = SCHO;
+  layout("explorer.html");
+  const main = $("#main"), addr = qs("p");
+  if (!isAddr(addr) || !SCHO.deployed) { main.innerHTML = '<div class="empty">Scholarship not found. <a href="explorer.html">Browse scholarships</a></div>'; return; }
+  async function render() {
+    try {
+      const pr = await loadProgram(addr), { o, t } = pr;
+      const prog = C.program(addr);
+      const [criteria, org] = await Promise.all([prog.criteriaList(), C.registry().getProvider(o.provider)]);
+      const funded = o.totalFunded - o.totalPaid - o.totalRefunded, free = funded - o.committed;
+      const need = o.awardAmount * BigInt(o.maxAwards), pct = need === 0n ? 0 : Math.min(100, Number((funded * 100n) / need));
+      const open = Number(o.state) === 0 && Number(o.deadline) >= now();
+      let mine = null, appId = 0n;
+      if (S.account) { appId = await prog.applicationOf(S.account); if (appId > 0n) mine = await prog.getApplication(appId); }
+      const url = safeUrl(o.infoURI), orgUrl = safeUrl(org.metadataURI);
+      main.innerHTML = `
+        <div class="page-head"><a href="explorer.html" class="small">← All scholarships</a>
+          <div class="inline" style="margin:10px 0 6px">${stateChip(o)}<span class="chip">${esc(t.symbol)}</span><span class="chip">${esc(timeLeft(o.deadline))}</span></div>
+          <h1 style="font-size:2.2rem">${esc(o.title)}</h1>
+          <p class="muted">Offered by <strong>${orgUrl ? `<a href="${esc(orgUrl)}" target="_blank" rel="noopener noreferrer">${esc(org.name)}</a>` : esc(org.name || short(o.provider))}</strong> · <span class="mono">${short(o.provider)}</span></p></div>
+        <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start">
+          <div class="grid">
+            <div class="card"><h3>About this scholarship</h3><p>${esc(o.summary) || '<span class="muted">No summary provided.</span>'}</p>
+              ${url ? `<p class="small"><a href="${esc(url)}" target="_blank" rel="noopener noreferrer">More information ↗</a></p>` : ""}</div>
+            <div class="card"><h3>Eligibility requirements</h3>
+              ${criteria.length ? `<ul style="padding-left:0;list-style:none;margin:0">${criteria.map((c, i) => `<li class="check"><span aria-hidden="true">${bit(o.requiredMask, i) ? "✅" : "➕"}</span><span>${esc(c)} <span class="chip ${bit(o.requiredMask, i) ? "warn" : ""}">${bit(o.requiredMask, i) ? "Required" : "Optional"}</span></span></li>`).join("")}</ul>` : '<p class="muted">No specific criteria listed.</p>'}
+              <div class="callout info small"><strong>Declarations are public</strong>When you apply you declare which criteria you meet. Providers may ask you to prove them off-chain; do not publish supporting documents onchain.</div></div>
+            <div class="card"><h3>How decisions work</h3><p class="small muted">Each application needs <b>${o.requiredReviews}</b> review${o.requiredReviews > 1n ? "s" : ""} from authorized reviewers before a decision can be recorded. Approved awards are reserved from the pool immediately and become claimable once the provider publishes decisions. You then have <b>${o.claimWindowDays} days</b> to claim.</p></div>
+          </div>
+          <div class="grid">
+            <div class="card"><div class="kv">Award per student</div><div style="font-family:var(--serif);font-size:2rem;font-weight:700;color:var(--brand)">${esc(fmtAmt(o.awardAmount, t))}</div>
+              <div class="meta" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0">
+                <div class="kv">Awards<b>${o.awardCount} / ${o.maxAwards}</b></div><div class="kv">Applicants<b>${o.applicationCount}</b></div>
+                <div class="kv">Deadline<b>${esc(fmtDate(o.deadline))}</b></div><div class="kv">Claim window<b>${o.claimWindowDays} days</b></div></div>
+              <div class="progress"><i style="width:${pct}%"></i></div>
+              <p class="small muted" style="margin-top:6px">Pool: ${esc(fmtAmt(funded, t))} on hand · ${esc(fmtAmt(o.committed, t))} reserved · ${esc(fmtAmt(free, t))} unallocated</p>
+              <div id="cta"></div></div>
+            <div class="card flat small"><strong>Program contract</strong><div class="mono" style="margin-top:4px"><a href="${esc(D.explorer)}/address/${addr}" target="_blank" rel="noopener">${addr}</a></div></div>
+          </div></div>`;
+      const cta = $("#cta");
+      if (mine) {
+        const id = Number(appId);
+        cta.innerHTML = `<hr style="border:0;border-top:1px solid var(--line);margin:16px 0"><strong>Your application #${id}</strong> ${statusChip(Number(mine.status))}${timeline(Number(mine.status))}<a class="btn secondary" style="width:100%" href="student.html">Open my dashboard</a>`;
+      } else if (open) {
+        cta.innerHTML = `<a class="btn" style="width:100%;margin-top:12px" href="apply.html?p=${addr}">Apply now</a>`;
+      } else {
+        cta.innerHTML = `<p class="muted small" style="margin-top:12px">This program is not accepting applications.</p>`;
+      }
+    } catch (e) { main.innerHTML = '<div class="empty">Could not load scholarship: ' + esc(errMsg(e)) + "</div>"; }
+  }
+  await connect(true); await render();
+  window.addEventListener("scho:wallet", render);
+})();
+</script></body></html>
